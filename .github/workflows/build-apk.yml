@@ -15,53 +15,145 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-        continue-on-error: true
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
 
-      - name: Find Android build ZIP
-        id: find_zip
+      - name: Find Android ZIP
         shell: bash
         run: |
           set -e
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" -print -quit)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: Keine ZIP-Datei gefunden."
+            echo "FEHLER: Keine ZIP-Datei gefunden."
             exit 1
           fi
 
-          echo "Gefundene ZIP: $ZIP_FILE"
-          echo "zip=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+          echo "ZIP gefunden: $ZIP_FILE"
 
-      - name: Extract project
+      - name: Extract Android project
         shell: bash
         run: |
           set -e
+
           rm -rf source
           mkdir -p source
 
-          unzip -q "${{ steps.find_zip.outputs.zip }}" -d source
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" -print -quit)
 
-          echo "Projektinhalt:"
+          unzip -q "$ZIP_FILE" -d source
+
+          echo "ZIP erfolgreich entpackt."
           find source -maxdepth 3 -type f | head -100
 
       - name: Find web project
-        id: web_project
         shell: bash
         run: |
           set -e
 
-          INDEX_FILE
+          echo "Suche index.html..."
+
+          find source -type f -name "index.html" -print
+
+          INDEX_FILE=$(find source -type f -name "index.html" -print -quit)
+
+          if [ -z "$INDEX_FILE" ]; then
+            echo "FEHLER: Keine index.html gefunden."
+            echo "Dateien im Projekt:"
+            find source -type f
+            exit 1
+          fi
+
+          echo "index.html gefunden:"
+          echo "$INDEX_FILE"
+
+      - name: Prepare Capacitor project
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf app
+          mkdir -p app/web
+
+          INDEX_FILE=$(find source -type f -name "index.html" -print -quit)
+          WEB_ROOT=$(dirname "$INDEX_FILE")
+
+          echo "Web-Projekt:"
+          echo "$WEB_ROOT"
+
+          cp -r "$WEB_ROOT"/. app/web/
+
+          cd app
+
+          npm init -y
+
+          npm install \
+            @capacitor/core \
+            @capacitor/cli \
+            @capacitor/android
+
+          cat > capacitor.config.json <<'EOF'
+{
+  "appId": "com.godofplayer.ai",
+  "appName": "GodOfPlayer AI",
+  "webDir": "web"
+}
+EOF
+
+          echo "Capacitor-Version:"
+          npx cap --version
+
+          echo "Android hinzufügen..."
+          npx cap add android
+
+          echo "Capacitor synchronisieren..."
+          npx cap sync android
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -e
+
+          cd app/android
+
+          chmod +x gradlew
+
+          echo "Starte APK-Build..."
+
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Check APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="app/android/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "FEHLER: APK wurde nicht gefunden."
+            find app -type f -name "*.apk" -print
+            exit 1
+          fi
+
+          echo "APK ERFOLGREICH ERSTELLT:"
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GodOfPlayer-AI-debug-APK
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
