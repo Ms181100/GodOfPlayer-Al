@@ -15,45 +15,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find and extract Android build ZIP
+      - name: Find Android build ZIP
+        shell: bash
         run: |
           set -e
 
           mkdir -p source
 
-          ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          ZIP=$(find . -maxdepth 1 -type f -name "*.zip" -print -quit)
 
           if [ -z "$ZIP" ]; then
             echo "ERROR: Keine ZIP-Datei gefunden."
             exit 1
           fi
 
-          echo "Gefundene ZIP: $ZIP"
+          echo "ZIP gefunden: $ZIP"
 
           unzip -q "$ZIP" -d source
 
-          echo "ZIP erfolgreich entpackt."
-
       - name: Find web project
+        shell: bash
         run: |
           set -e
 
           INDEX=$(find source -name "index.html" -print -quit)
 
           if [ -z "$INDEX" ]; then
-            echo "ERROR: index.html nicht gefunden."
-            find source -maxdepth 5 -type f | head -100
+            echo "ERROR: index.html wurde nicht gefunden."
+            find source -maxdepth 5 -type f
             exit 1
           fi
 
-          echo "Web-Projekt gefunden:"
-          echo "$INDEX"
+          echo "index.html gefunden: $INDEX"
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
@@ -62,17 +60,14 @@ jobs:
           java-version: "21"
 
       - name: Show versions
+        shell: bash
         run: |
-          echo "=== Node ==="
           node --version
-
-          echo "=== npm ==="
           npm --version
-
-          echo "=== Java ==="
           java -version
 
       - name: Prepare Capacitor project
+        shell: bash
         run: |
           set -e
 
@@ -81,23 +76,15 @@ jobs:
           INDEX=$(find source -name "index.html" -print -quit)
           ROOT=$(dirname "$INDEX")
 
-          echo "Web root: $ROOT"
+          echo "Web-Projekt: $ROOT"
 
           cp -r "$ROOT"/. app/web/
 
           cd app
 
-          echo "=== Creating npm project ==="
           npm init -y
 
-          echo "=== Installing Capacitor ==="
-          npm install \
-            @capacitor/core@latest \
-            @capacitor/cli@latest \
-            @capacitor/android@latest
-
-          echo "=== Capacitor versions ==="
-          npx cap --version
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
 
           cat > capacitor.config.json <<'EOF'
 {
@@ -107,13 +94,11 @@ jobs:
 }
 EOF
 
-          echo "=== Adding Android platform ==="
           npx cap add android
-
-          echo "=== Syncing Android project ==="
           npx cap sync android
 
       - name: Build APK
+        shell: bash
         run: |
           set -e
 
@@ -121,26 +106,22 @@ EOF
 
           chmod +x gradlew
 
-          echo "=== Building Debug APK ==="
-
           ./gradlew assembleDebug --stacktrace
 
       - name: Check APK
+        shell: bash
         run: |
           set -e
 
           APK="app/android/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: APK wurde nicht erzeugt."
-            find app/android -type f -name "*.apk" -print
+            echo "ERROR: APK wurde nicht erstellt."
+            find app/android -name "*.apk" -print
             exit 1
           fi
 
-          echo "======================================"
-          echo "APK ERFOLGREICH ERSTELLT!"
-          echo "======================================"
-
+          echo "APK erfolgreich erstellt:"
           ls -lh "$APK"
 
       - name: Upload APK
