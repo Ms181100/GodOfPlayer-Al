@@ -1,4 +1,3 @@
-
 name: Build GodOfPlayer AI APK
 
 on:
@@ -7,126 +6,62 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find Android build ZIP
-        shell: bash
-        run: |
-          set -e
-
-          mkdir -p source
-
-          ZIP=$(find . -maxdepth 1 -type f -name "*.zip" -print -quit)
-
-          if [ -z "$ZIP" ]; then
-            echo "ERROR: Keine ZIP-Datei gefunden."
-            exit 1
-          fi
-
-          echo "ZIP gefunden: $ZIP"
-
-          unzip -q "$ZIP" -d source
-
-      - name: Find web project
-        shell: bash
-        run: |
-          set -e
-
-          INDEX=$(find source -name "index.html" -print -quit)
-
-          if [ -z "$INDEX" ]; then
-            echo "ERROR: index.html wurde nicht gefunden."
-            find source -maxdepth 5 -type f
-            exit 1
-          fi
-
-          echo "index.html gefunden: $INDEX"
-
-      - name: Setup Node.js 22
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: 22
+          cache: npm
+        continue-on-error: true
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: '21'
 
-      - name: Show versions
-        shell: bash
-        run: |
-          node --version
-          npm --version
-          java -version
-
-      - name: Prepare Capacitor project
+      - name: Find Android build ZIP
+        id: find_zip
         shell: bash
         run: |
           set -e
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
-          mkdir -p app/web
-
-          INDEX=$(find source -name "index.html" -print -quit)
-          ROOT=$(dirname "$INDEX")
-
-          echo "Web-Projekt: $ROOT"
-
-          cp -r "$ROOT"/. app/web/
-
-          cd app
-
-          npm init -y
-
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
-
-          cat > capacitor.config.json <<'EOF'
-{
-  "appId": "com.godofplayer.ai",
-  "appName": "GodOfPlayer AI",
-  "webDir": "web"
-}
-EOF
-
-          npx cap add android
-          npx cap sync android
-
-      - name: Build APK
-        shell: bash
-        run: |
-          set -e
-
-          cd app/android
-
-          chmod +x gradlew
-
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Check APK
-        shell: bash
-        run: |
-          set -e
-
-          APK="app/android/app/build/outputs/apk/debug/app-debug.apk"
-
-          if [ ! -f "$APK" ]; then
-            echo "ERROR: APK wurde nicht erstellt."
-            find app/android -name "*.apk" -print
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: Keine ZIP-Datei gefunden."
             exit 1
           fi
 
-          echo "APK erfolgreich erstellt:"
-          ls -lh "$APK"
+          echo "Gefundene ZIP: $ZIP_FILE"
+          echo "zip=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: GodOfPlayer-AI-debug-apk
-          path: app/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+      - name: Extract project
+        shell: bash
+        run: |
+          set -e
+          rm -rf source
+          mkdir -p source
+
+          unzip -q "${{ steps.find_zip.outputs.zip }}" -d source
+
+          echo "Projektinhalt:"
+          find source -maxdepth 3 -type f | head -100
+
+      - name: Find web project
+        id: web_project
+        shell: bash
+        run: |
+          set -e
+
+          INDEX_FILE
